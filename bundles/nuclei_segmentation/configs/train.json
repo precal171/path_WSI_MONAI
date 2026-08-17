@@ -1,0 +1,261 @@
+{
+    "imports": [
+        "$import os",
+        "$import scripts",
+        "$import scripts.network",
+        "$import scripts.utils"
+    ],
+
+    "_comment_paths": "bundle_root and manifest are the two things you normally override on the command line. See docs/bundle_design.md.",
+    "bundle_root": ".",
+    "ckpt_dir": "$@bundle_root + '/models'",
+    "tb_dir": "$@ckpt_dir + '/tensorboard'",
+    "manifest": "$@bundle_root + '/../../data/nuclei_segmentation/manifest.json'",
+
+    "_comment_manifest": "Written by scripts/prepare_training_data.py. Absolute paths, so the manifest is cheap to regenerate if data moves.",
+    "manifest_data": "$monai.bundle.ConfigParser.load_config_file(@manifest)",
+    "train_datalist": "$@manifest_data['training']",
+    "val_datalist": "$@manifest_data['validation']",
+
+    "device": "$torch.device('cuda' if torch.cuda.is_available() else 'cpu')",
+
+    "task_type": "nuclei_segmentation",
+    "in_channels": 3,
+    "num_classes": 1,
+    "dropout": 0.0,
+    "patch_size": [256, 256],
+
+    "max_epochs": 100,
+    "batch_size": 8,
+    "num_workers": 4,
+    "learning_rate": 0.0001,
+    "val_interval": 1,
+    "cache_rate": 0.0,
+    "seed": 12345,
+    "amp": true,
+
+    "_comment_finetune": "Set finetune=true to continue from ckpt_dir/model.pt instead of random init. This is what the MONAI Label trainer task sets for quick interactive updates.",
+    "finetune": false,
+    "pretrained_ckpt": "$@ckpt_dir + '/model.pt'",
+
+    "network_def": {
+        "_target_": "scripts.network.get_network",
+        "task_type": "@task_type",
+        "in_channels": "@in_channels",
+        "num_classes": "@num_classes",
+        "dropout": "@dropout"
+    },
+    "network": "$@network_def.to(@device)",
+
+    "loss": {
+        "_target_": "monai.losses.DiceCELoss",
+        "sigmoid": true,
+        "squared_pred": true,
+        "lambda_dice": 1.0,
+        "lambda_ce": 1.0
+    },
+
+    "optimizer": {
+        "_target_": "torch.optim.Adam",
+        "params": "$@network.parameters()",
+        "lr": "@learning_rate"
+    },
+
+    "lr_scheduler": {
+        "_target_": "torch.optim.lr_scheduler.CosineAnnealingLR",
+        "optimizer": "@optimizer",
+        "T_max": "@max_epochs"
+    },
+
+    "_comment_transforms": "Masks are stored as 0/255 PNGs so they can be eyeballed; both image and label are rescaled with fixed (not data-derived) ranges so an all-background patch cannot divide by zero.",
+    "base_transforms": [
+        {
+            "_target_": "monai.transforms.LoadImaged",
+            "keys": ["image", "label"],
+            "image_only": true,
+            "ensure_channel_first": true
+        },
+        {
+            "_target_": "monai.transforms.ScaleIntensityRanged",
+            "keys": "image",
+            "a_min": 0.0,
+            "a_max": 255.0,
+            "b_min": 0.0,
+            "b_max": 1.0,
+            "clip": true
+        },
+        {
+            "_target_": "monai.transforms.ScaleIntensityRanged",
+            "keys": "label",
+            "a_min": 0.0,
+            "a_max": 255.0,
+            "b_min": 0.0,
+            "b_max": 1.0,
+            "clip": true
+        }
+    ],
+
+    "train": {
+        "preprocessing": {
+            "_target_": "monai.transforms.Compose",
+            "transforms": "$@base_transforms + [monai.transforms.RandFlipd(keys=['image', 'label'], spatial_axis=0, prob=0.5), monai.transforms.RandFlipd(keys=['image', 'label'], spatial_axis=1, prob=0.5), monai.transforms.RandRotate90d(keys=['image', 'label'], prob=0.5, max_k=3), monai.transforms.RandAdjustContrastd(keys='image', prob=0.25, gamma=(0.7, 1.4)), monai.transforms.RandGaussianNoised(keys='image', prob=0.15, std=0.02), monai.transforms.EnsureTyped(keys=['image', 'label'])]"
+        },
+        "dataset": {
+            "_target_": "monai.data.CacheDataset",
+            "data": "@train_datalist",
+            "transform": "@train#preprocessing",
+            "cache_rate": "@cache_rate",
+            "num_workers": "@num_workers"
+        },
+        "dataloader": {
+            "_target_": "monai.data.DataLoader",
+            "dataset": "@train#dataset",
+            "batch_size": "@batch_size",
+            "shuffle": true,
+            "num_workers": "@num_workers",
+            "drop_last": false
+        },
+        "inferer": {
+            "_target_": "monai.inferers.SimpleInferer"
+        },
+        "postprocessing": {
+            "_target_": "monai.transforms.Compose",
+            "transforms": [
+                {
+                    "_target_": "monai.transforms.Activationsd",
+                    "keys": "pred",
+                    "sigmoid": true
+                },
+                {
+                    "_target_": "monai.transforms.AsDiscreted",
+                    "keys": "pred",
+                    "threshold": 0.5
+                }
+            ]
+        },
+        "key_metric": {
+            "train_mean_dice": {
+                "_target_": "monai.handlers.MeanDice",
+                "include_background": false,
+                "output_transform": "$monai.handlers.from_engine(['pred', 'label'])"
+            }
+        },
+        "handlers": [
+            {
+                "_target_": "monai.handlers.LrScheduleHandler",
+                "lr_scheduler": "@lr_scheduler",
+                "print_lr": true
+            },
+            {
+                "_target_": "monai.handlers.ValidationHandler",
+                "validator": "@validate#evaluator",
+                "epoch_level": true,
+                "interval": "@val_interval"
+            },
+            {
+                "_target_": "monai.handlers.StatsHandler",
+                "tag_name": "train_loss",
+                "output_transform": "$monai.handlers.from_engine(['loss'], first=True)"
+            },
+            {
+                "_target_": "monai.handlers.TensorBoardStatsHandler",
+                "log_dir": "@tb_dir",
+                "tag_name": "train_loss",
+                "output_transform": "$monai.handlers.from_engine(['loss'], first=True)"
+            },
+            {
+                "_desc_": "Always leaves usable weights behind even if validation never improves.",
+                "_target_": "monai.handlers.CheckpointSaver",
+                "save_dir": "@ckpt_dir",
+                "save_dict": {"model": "@network"},
+                "save_final": true,
+                "final_filename": "model_final.pt",
+                "save_interval": 0
+            }
+        ],
+        "trainer": {
+            "_target_": "monai.engines.SupervisedTrainer",
+            "max_epochs": "@max_epochs",
+            "device": "@device",
+            "train_data_loader": "@train#dataloader",
+            "network": "@network",
+            "optimizer": "@optimizer",
+            "loss_function": "@loss",
+            "inferer": "@train#inferer",
+            "postprocessing": "@train#postprocessing",
+            "key_train_metric": "@train#key_metric",
+            "train_handlers": "@train#handlers",
+            "amp": "@amp"
+        }
+    },
+
+    "validate": {
+        "preprocessing": {
+            "_target_": "monai.transforms.Compose",
+            "transforms": "$@base_transforms + [monai.transforms.EnsureTyped(keys=['image', 'label'])]"
+        },
+        "dataset": {
+            "_target_": "monai.data.Dataset",
+            "data": "@val_datalist",
+            "transform": "@validate#preprocessing"
+        },
+        "dataloader": {
+            "_target_": "monai.data.DataLoader",
+            "dataset": "@validate#dataset",
+            "batch_size": 1,
+            "shuffle": false,
+            "num_workers": "@num_workers"
+        },
+        "inferer": {
+            "_target_": "monai.inferers.SlidingWindowInferer",
+            "roi_size": "@patch_size",
+            "sw_batch_size": 4,
+            "overlap": 0.25
+        },
+        "postprocessing": "@train#postprocessing",
+        "key_metric": {
+            "val_mean_dice": {
+                "_target_": "monai.handlers.MeanDice",
+                "include_background": false,
+                "output_transform": "$monai.handlers.from_engine(['pred', 'label'])"
+            }
+        },
+        "handlers": [
+            {
+                "_target_": "monai.handlers.StatsHandler",
+                "iteration_log": false
+            },
+            {
+                "_target_": "monai.handlers.TensorBoardStatsHandler",
+                "log_dir": "@tb_dir",
+                "iteration_log": false
+            },
+            {
+                "_desc_": "model.pt is the best-by-validation checkpoint -- the file MONAI Label and batch inference load.",
+                "_target_": "monai.handlers.CheckpointSaver",
+                "save_dir": "@ckpt_dir",
+                "save_dict": {"model": "@network"},
+                "save_key_metric": true,
+                "key_metric_filename": "model.pt"
+            }
+        ],
+        "evaluator": {
+            "_target_": "monai.engines.SupervisedEvaluator",
+            "device": "@device",
+            "val_data_loader": "@validate#dataloader",
+            "network": "@network",
+            "inferer": "@validate#inferer",
+            "postprocessing": "@validate#postprocessing",
+            "key_val_metric": "@validate#key_metric",
+            "val_handlers": "@validate#handlers",
+            "amp": "@amp"
+        }
+    },
+
+    "run": [
+        "$monai.utils.set_determinism(seed=@seed)",
+        "$os.makedirs(@ckpt_dir, exist_ok=True)",
+        "$scripts.utils.load_weights(@network, @pretrained_ckpt, @device) if @finetune else None",
+        "$@train#trainer.run()"
+    ]
+}

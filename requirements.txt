@@ -1,0 +1,34 @@
+# Core runtime dependencies (WSI I/O, geometry, MONAI Core).
+#
+# You do NOT pip install this on your laptop. This file exists to feed the
+# Apptainer image build (slurm/apptainer.def), which happens ON BioHPC. See
+# docs/biohpc_setup.md -- the container is the only environment in this project.
+#
+# Enough on its own to run: the GeoJSON <-> mask utilities, MONAI Bundle config
+# parsing, CPU inference, prepare_training_data.py and batch_infer.py.
+# Interactive annotation and GPU training additionally need requirements-train.txt.
+#
+# Lower bounds only. Once you have a container that works on your cluster, pin
+# these exactly (==) so rebuilds stay reproducible.
+
+monai>=1.3.0
+torch>=2.0.0
+numpy>=1.24
+scipy>=1.10
+
+# WSI reading. openslide-python is only a wrapper -- the OpenSlide *system*
+# library must also be present. apptainer.def installs it via apt.
+openslide-python>=1.3.0
+tifffile>=2023.7.10
+imagecodecs>=2023.7.10   # tifffile needs this for compressed pyramidal TIFFs
+Pillow>=10.0.0
+
+# Geometry / rasterization for the QuPath GeoJSON interchange
+shapely>=2.0.0
+scikit-image>=0.21.0
+opencv-python-headless>=4.8.0
+
+# Config / CLI plumbing
+PyYAML>=6.0
+tqdm>=4.65
+fire>=0.5.0    # required by `python -m monai.bundle run`, which the sbatch scripts use
