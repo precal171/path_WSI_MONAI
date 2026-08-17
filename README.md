@@ -5,10 +5,11 @@ A whole-slide pathology pipeline built on NVIDIA MONAI: annotate slides in
 active-learning loop, and apply them across a slide archive with **MONAI Core**.
 
 **Everything runs on BioHPC.** Nothing is installed on your own machine — one
-Apptainer container on the cluster serves the annotation server, training and
-batch inference. Your slides never leave cluster storage, and model weights never
-get copied between machines. The only thing that runs locally is QuPath itself,
-and even that can run inside a BioHPC remote-desktop session
+Singularity/Apptainer container on the cluster (pulled, no build privileges
+needed) serves the annotation server, training and batch inference. Your slides
+never leave cluster storage, and model weights never get copied between
+machines. The only thing that runs locally is QuPath itself, and even that can
+run inside a BioHPC Web Visualization session
 (see [docs/biohpc_setup.md](docs/biohpc_setup.md)).
 
 ## The loop
@@ -86,10 +87,10 @@ python tools/batch_infer.py --bundle bundles/nuclei_segmentation \
 | `monai_pathology/` | The MONAI Label app: infer, train and active-learning tasks |
 | `bundles/nuclei_segmentation/` | MONAI Bundle — network, transforms, training and inference configs |
 | `tools/` | CLIs: data prep, batch inference, synthetic-slide generator |
-| `slurm/` | Apptainer definition, container build, and the sbatch entry points |
+| `slurm/` | Container setup (`build_container.sh`), preflight (`check_env.sh`), and the job entry point (`submit.sh`) |
 | `qupath/` | How to connect QuPath to the server |
 | `docs/` | Setup, workflow, architecture, bundle design, testing, and the non-technical researcher guide |
-| `tests/` | 130 tests, runnable without GPU, slides or QuPath |
+| `tests/` | 146 tests, runnable without GPU, slides or QuPath |
 
 ## What works, and what doesn't
 
