@@ -3,22 +3,17 @@
 #SBATCH --output=logs/train_%j.out
 #SBATCH --error=logs/train_%j.err
 #
-# Resource directives come from slurm/config.env; pass them on the command line
-# or uncomment and edit these:
-##SBATCH --partition=GPUp4
-##SBATCH --gres=gpu:1
-##SBATCH --cpus-per-task=8
-##SBATCH --mem=64G
-##SBATCH --time=24:00:00
+# DO NOT sbatch this file directly: #SBATCH directives are parsed before the
+# shell runs, so nothing here can read config.env -- a bare submission gets NO
+# partition and NO GPU. Submit through the wrapper, which passes the resources
+# from slurm/config.env as sbatch flags:
 #
-# Full (non-interactive) training run of the nuclei bundle.
+#     bash slurm/submit.sh train
 #
-#     mkdir -p logs
-#     sbatch --partition=<PARTITION> --gres=gpu:1 --time=24:00:00 \
-#            slurm/train_bundle.sbatch
+# Full (non-interactive) training run of the nuclei bundle. Override anything
+# at submit time via the environment:
 #
-# Override anything at submit time via the environment:
-#     MAX_EPOCHS=400 PATCH_DIR=/scratch/$USER/patches sbatch slurm/train_bundle.sbatch
+#     MAX_EPOCHS=400 bash slurm/submit.sh train
 #
 # This runs exactly the same configs/train.json that interactive fine-tuning in
 # QuPath uses -- only the epoch count and batch size differ. See
@@ -38,11 +33,20 @@ else
 fi
 
 PROJECT_DIR="${PROJECT_DIR:-$PROJECT_ROOT}"
-CONTAINER="${CONTAINER:-$PROJECT_DIR/path_wsi_monai.sif}"
-APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
+CONTAINER="${CONTAINER:-$PROJECT_DIR/monai_base.sif}"
+VENV_DIR="${VENV_DIR:-}"
+APPTAINER_BIN="${APPTAINER_BIN:-singularity}"
 BUNDLE="${BUNDLE:-$PROJECT_DIR/bundles/nuclei_segmentation}"
 PATCH_DIR="${PATCH_DIR:-$PROJECT_DIR/data/patches}"
 MANIFEST="${MANIFEST:-$PATCH_DIR/manifest.json}"
+
+# With the pull+venv setup, project packages live in the venv, not the image.
+PYTHON_CMD=python
+VENV_BIND=""
+if [[ -n "$VENV_DIR" ]]; then
+    PYTHON_CMD="$VENV_DIR/bin/python"
+    VENV_BIND="--bind $(dirname "$VENV_DIR"):$(dirname "$VENV_DIR")"
+fi
 
 [[ -n "${APPTAINER_MODULE:-}" ]] && { module load "$APPTAINER_MODULE" 2>/dev/null || true; }
 
@@ -82,7 +86,7 @@ BIND_ARG=""
 # batch run is usually meant to retrain properly, whereas interactive updates
 # are the incremental path. Set FINETUNE=true to continue instead.
 run_training() {
-    "$@" python -m monai.bundle run \
+    "$@" "$PYTHON_CMD" -m monai.bundle run \
         --config_file "$BUNDLE/configs/train.json" \
         --logging_file "$BUNDLE/configs/logging.conf" \
         --bundle_root "$BUNDLE" \
@@ -100,10 +104,11 @@ if [[ "${USE_CONDA:-0}" == "1" ]]; then
     # shellcheck disable=SC1091
     source "$(conda info --base)/etc/profile.d/conda.sh"
     conda activate path-wsi-monai
+    PYTHON_CMD=python
     run_training
 else
     [[ -f "$CONTAINER" ]] || { echo "ERROR: no container at $CONTAINER -- run bash slurm/build_container.sh" >&2; exit 1; }
-    run_training "$APPTAINER_BIN" exec --nv $BIND_ARG --bind "$PROJECT_DIR:$PROJECT_DIR" "$CONTAINER"
+    run_training "$APPTAINER_BIN" exec --nv $BIND_ARG $VENV_BIND --bind "$PROJECT_DIR:$PROJECT_DIR" "$CONTAINER"
 fi
 
 echo

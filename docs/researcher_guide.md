@@ -24,13 +24,12 @@ All of the computing happens on your university's shared research computer
 
 ## What you'll need
 
-- A BioHPC account and access to its **visualization portal** — this is a
+- A BioHPC account and access to its **Web Visualization portal** — this is a
   website where you get a virtual desktop running on the cluster, so that
   programs like QuPath appear in your browser as if they were on your own
-  computer. Common options include Open OnDemand, VNC-based portals, or
-  astrocyte. Ask your BioHPC helpdesk for the exact web address and how to log
-  in if you don't already use this. (If your site uses astrocyte, see the note
-  at the end of this section.)
+  computer. At UTSW this is the "Web Visualization" page on the BioHPC portal
+  (portal.biohpc.swmed.edu), also reachable through BioHPC OnDemand. Ask the
+  BioHPC helpdesk how to log in if you don't already use it.
 - Your slide images already on the cluster's storage. Ask whoever set this up
   (or your BioHPC storage admin) where they are — you'll need that folder path
   once, to give to IT/the technical setup person, and it's already configured
@@ -59,7 +58,7 @@ unsure):
 
 ```
 cd path_wsi_monai
-sbatch slurm/start_label_server.sbatch
+bash slurm/submit.sh server
 ```
 
 You'll see a short message with a number — that's a **job ID**. This just
@@ -146,7 +145,7 @@ for you, or follow [../docs/workflow.md](../docs/workflow.md) if you're
 comfortable with the terminal):
 
 ```
-sbatch slurm/infer_wsi_batch.sbatch
+bash slurm/submit.sh infer
 ```
 
 This produces a results file for each slide that you can then load into
@@ -196,24 +195,6 @@ want to look at [testing.md](testing.md) and [biohpc_setup.md](biohpc_setup.md).
 | **Server** | The program running on the cluster that QuPath talks to. You start it once per work session (Step 2). |
 | **Training** | The process of the model learning from your drawings. |
 | **Inference** | The model making its own guesses, using what it has learned. |
-| **astrocyte** | If your BioHPC uses this, it is a container platform that provides remote desktop access. Everything in these instructions works the same — you just use astrocyte's portal to access your virtual desktop instead of another portal. |
-
-## Using astrocyte
-
-If your BioHPC provides access through **astrocyte**, the workflow is identical
-to using Open OnDemand or any other remote desktop:
-
-1. Log into astrocyte's web portal
-2. Launch a desktop session (just like Step 1)
-3. Open a terminal inside the astrocyte session (Step 2 onwards are the same)
-
-The only difference is that when you run `sbatch slurm/start_label_server.sbatch`
-inside the terminal, the compute node name printed in Step 2 is already reachable
-from the astrocyte desktop without any additional setup — you can paste
-`http://<node>:<port>` directly into QuPath.
-
-No special configuration is needed; this project works with astrocyte's
-Singularity container orchestration out of the box.
 
 ## Not for clinical use
 

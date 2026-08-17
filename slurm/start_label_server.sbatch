@@ -3,20 +3,14 @@
 #SBATCH --output=logs/server_%j.out
 #SBATCH --error=logs/server_%j.err
 #
-# Resource directives are applied from slurm/config.env at submit time by
-# submit_server.sh. If you sbatch this file directly, uncomment and set these:
-##SBATCH --partition=GPUp4
-##SBATCH --gres=gpu:1
-##SBATCH --cpus-per-task=8
-##SBATCH --mem=64G
-##SBATCH --time=08:00:00
+# DO NOT sbatch this file directly: #SBATCH directives are parsed before the
+# shell runs, so nothing here can read config.env -- a bare submission gets NO
+# partition and NO GPU. Submit through the wrapper, which passes the resources
+# from slurm/config.env as sbatch flags:
+#
+#     bash slurm/submit.sh server
 #
 # Runs the MONAI Label annotation server on a GPU node so QuPath can drive it.
-#
-#     mkdir -p logs
-#     sbatch --partition=$SLURM_PARTITION --gres=gpu:1 --time=08:00:00 \
-#            slurm/start_label_server.sbatch
-#
 # Then read logs/server_<jobid>.out: it prints the node, the port, and the exact
 # ssh command to reach it. See docs/biohpc_setup.md.
 #
@@ -37,9 +31,14 @@ else
 fi
 
 PROJECT_DIR="${PROJECT_DIR:-$PROJECT_ROOT}"
-CONTAINER="${CONTAINER:-$PROJECT_DIR/path_wsi_monai.sif}"
-APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
+CONTAINER="${CONTAINER:-$PROJECT_DIR/monai_base.sif}"
+VENV_DIR="${VENV_DIR:-}"
+APPTAINER_BIN="${APPTAINER_BIN:-singularity}"
 WSI_DIR="${WSI_DIR:?Set WSI_DIR in slurm/config.env}"
+
+# With the pull+venv setup, project commands live in the venv, not the image.
+MONAILABEL_CMD=monailabel
+[[ -n "$VENV_DIR" ]] && MONAILABEL_CMD="$VENV_DIR/bin/monailabel"
 
 [[ -n "${APPTAINER_MODULE:-}" ]] && { module load "$APPTAINER_MODULE" 2>/dev/null || true; }
 
@@ -52,7 +51,7 @@ if [[ "$PORT" == "0" ]]; then
 fi
 
 NODE="$(hostname -f)"
-LOGIN_HOST="${LOGIN_HOST:-<biohpc-login-host>}"
+LOGIN_HOST="${LOGIN_HOST:-nucleus.biohpc.swmed.edu}"
 
 cat <<EOF
 
@@ -100,6 +99,10 @@ fi
 
 BIND_ARG=""
 [[ -n "${BIND_PATHS:-}" ]] && BIND_ARG="--bind $BIND_PATHS"
+# Plain string, not an array: empty arrays trip `set -u` on the bash 4.2 that
+# RHEL-era cluster nodes still ship.
+VENV_BIND=""
+[[ -n "$VENV_DIR" ]] && VENV_BIND="--bind $(dirname "$VENV_DIR"):$(dirname "$VENV_DIR")"
 
 if [[ "${USE_CONDA:-0}" == "1" ]]; then
     # Fallback path for clusters without Apptainer (see build_container.sh).
@@ -123,11 +126,11 @@ fi
 
 # --nv exposes the GPU; without it the server silently runs on CPU and every
 # interactive inference in QuPath takes tens of seconds instead of under one.
-exec "$APPTAINER_BIN" exec --nv $BIND_ARG \
+exec "$APPTAINER_BIN" exec --nv $BIND_ARG $VENV_BIND \
     --bind "$PROJECT_DIR:$PROJECT_DIR" \
     --bind "$WSI_DIR:$WSI_DIR" \
     "$CONTAINER" \
-    monailabel start_server \
+    "$MONAILABEL_CMD" start_server \
         --app "$PROJECT_DIR/monai_pathology" \
         --studies "$WSI_DIR" \
         --host 0.0.0.0 --port "$PORT" \

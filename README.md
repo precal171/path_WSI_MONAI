@@ -39,17 +39,20 @@ BioHPC visualization portal, once the one-time setup below has been done.
 All of this happens on the cluster.
 
 ```bash
-ssh <you>@<biohpc-login-host>
+ssh <you>@nucleus.biohpc.swmed.edu
+cd /project/<your-space>          # NOT $HOME -- the image is ~10 GB
 git clone https://github.com/precal171/path_wsi_monai.git
 cd path_wsi_monai
 
 cp slurm/config.env.example slurm/config.env
 $EDITOR slurm/config.env          # partition, account, WSI_DIR -- see the TODOs
 
-bash slurm/build_container.sh     # builds path_wsi_monai.sif
-mkdir -p logs
+bash slurm/build_container.sh     # pulls the MONAI image + layers a venv (no root needed)
 
-sbatch slurm/start_label_server.sbatch
+# preflight on a GPU node -- the gate for everything else
+srun --partition=GPUA100 --gres=gpu:1 --pty bash slurm/check_env.sh
+
+bash slurm/submit.sh server       # submits with the GPU/partition from config.env
 cat logs/server_*.out             # prints the node, port and how to connect
 ```
 

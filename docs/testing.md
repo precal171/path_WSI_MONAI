@@ -42,10 +42,12 @@ these, all of which need your cluster and your data:
 - **Real slide formats.** Everything is tested against synthetic pyramidal TIFFs
   read with the `TiffFile` backend. Actual `.svs`/`.ndpi` via OpenSlide, with
   vendor metadata, odd pyramid layouts and JPEG2000 tiles, is untested here.
-- **The container.** `slurm/apptainer.def` has never been built in this
-  environment. Its `%test` section checks imports at build time — watch it.
-- **GPU.** No CUDA anywhere. `apptainer exec --nv` GPU visibility is
-  step 3 of [biohpc_setup.md](biohpc_setup.md) for a reason.
+- **The container.** The pulled image and its venv have never been created in
+  this environment. `build_container.sh` verifies every import (including
+  `monailabel`) as its last step — watch it.
+- **GPU.** No CUDA anywhere. `bash slurm/check_env.sh` on a GPU node checks
+  visibility *and* compute capability — step 4 of
+  [biohpc_setup.md](biohpc_setup.md) for a reason.
 - **SLURM.** The scripts are syntax-checked (`bash -n`) and no more. Partitions,
   accounts, module names and mounts are all site-specific.
 - **QuPath.** The extension, the REST protocol, and the request/response shapes
@@ -63,7 +65,10 @@ these, all of which need your cluster and your data:
 Work in this order — each step's failure is unambiguous, which stops you
 debugging three things at once:
 
-1. `apptainer exec --nv ... torch.cuda.is_available()` → must print `True`.
+1. `srun --partition=<GPU partition> --gres=gpu:1 --pty bash slurm/check_env.sh`
+   → every line must print `PASS`. This covers the module, the image, the venv,
+   bind paths, GPU visibility, compute capability, `monailabel`, OpenSlide,
+   the slide directory and the log directory in one shot.
 2. `python -m pytest tests/` **inside the container** → the suite should pass
    there too. If it fails only in the container, it is the image, not the code.
 3. Read one real slide:

@@ -1,27 +1,27 @@
-# Apptainer definition for the whole project: annotation server, training and
-# batch inference all run out of this one image.
+# Container definition for a fully self-contained image: annotation server,
+# training and batch inference all run out of it.
 #
-# Build it ON BioHPC (never locally -- see docs/biohpc_setup.md):
-#     bash slurm/build_container.sh
+# This is the OPT-IN path, for sites that allow unprivileged builds:
+#     bash slurm/build_container.sh --build-def
 #
-# Which is roughly:
-#     apptainer build path_wsi_monai.sif slurm/apptainer.def
-#
-# If your cluster does not allow user builds (`--fakeroot` disabled and no
-# sudo), see build_container.sh, which falls back to pulling a prebuilt MONAI
-# image and installing this project's dependencies into a writable overlay or a
-# virtualenv on shared storage.
+# The DEFAULT path needs no build privileges at all and is what most cluster
+# users should run instead -- `bash slurm/build_container.sh` pulls the same
+# base image and layers a virtualenv over it on shared storage. See
+# docs/biohpc_setup.md.
 
 Bootstrap: docker
 
 # The MONAI project's official image: CUDA, PyTorch and MONAI already matched to
 # each other, which is the single most annoying thing to get right by hand.
 #
-# TODO(BioHPC): pin this to a specific tag rather than a moving one, and pick a
-# CUDA version your cluster's driver supports. Check the driver with `nvidia-smi`
-# on a GPU node: the container's CUDA runtime must be <= the host driver's
-# supported version. `projectmonai/monai:1.3.0` and similar tags are on Docker Hub.
-From: projectmonai/monai:latest
+# Pinned deliberately -- a moving :latest makes rebuilds non-reproducible. The
+# 1.4.0 image is CUDA 12.x and runs on A100 (sm_80) and H100 (sm_90) nodes,
+# i.e. UTSW BioHPC's GPUA100/GPUH100 partitions. If you target older GPUs,
+# check the host driver with `nvidia-smi` on a GPU node first: the container's
+# CUDA runtime must be <= the driver's supported version, and the torch build
+# must ship kernels for the card's compute capability (Pascal-era GPUp4 does
+# not work with recent torch builds).
+From: projectmonai/monai:1.4.0
 
 %labels
     Maintainer path_WSI_MONAI
@@ -61,17 +61,24 @@ From: projectmonai/monai:latest
     python -m pip install --no-cache-dir --upgrade pip
 
     # The base image already carries a matched torch/CUDA pair. Installing our
-    # requirements without constraint can silently replace it with a CPU-only
+    # requirements without constraint could silently replace it with a CPU-only
     # or mismatched build, which then fails at runtime with a confusing
-    # "no kernel image is available" error. Keeping the existing torch is the
-    # safer default.
-    python -m pip install --no-cache-dir --no-deps torch || true
-    python -m pip install --no-cache-dir -r /opt/requirements.txt -r /opt/requirements-train.txt
+    # "no kernel image is available" error. Constrain pip to the torch that is
+    # already installed so the resolver cannot swap it out.
+    python - <<'PYPIN' > /opt/torch-constraint.txt
+import torch
+print("torch==" + torch.__version__.split("+")[0])
+PYPIN
+    python -m pip install --no-cache-dir -c /opt/torch-constraint.txt \
+        -r /opt/requirements.txt -r /opt/requirements-train.txt
 
-    # Fail the build now rather than at 3am in a queued job.
+    # Fail the build now rather than at 3am in a queued job. monailabel is on
+    # the list deliberately: it drags in a fragile pydicom/dicomweb stack at
+    # import time and is the whole point of this image -- a build that passes
+    # without it just moves the failure to server startup.
     python - <<'PYCHECK'
 import importlib
-required = ["monai", "torch", "numpy", "openslide", "shapely", "skimage", "cv2", "PIL", "tifffile", "fire"]
+required = ["monai", "torch", "numpy", "openslide", "shapely", "skimage", "cv2", "PIL", "tifffile", "fire", "monailabel"]
 missing = []
 for module in required:
     try:
@@ -102,7 +109,7 @@ PYCHECK
     MONAI pathology WSI pipeline.
 
     Run things inside this image with:
-        apptainer exec --nv path_wsi_monai.sif python -m monai.bundle run ...
+        apptainer exec --nv monai_base.sif python -m monai.bundle run ...
 
     --nv is what exposes the host GPU. Without it everything silently runs on
     CPU, which for whole-slide inference means hours instead of minutes.

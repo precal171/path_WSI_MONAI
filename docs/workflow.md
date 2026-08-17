@@ -56,7 +56,7 @@ python tools/prepare_training_data.py \
     --roi-labels ROI \
     --patch-size 256
 
-sbatch slurm/train_bundle.sbatch
+bash slurm/submit.sh train
 tail -f logs/train_<jobid>.out
 ```
 
@@ -77,11 +77,12 @@ train/validation were split by patch rather than by slide. Add slides.
 **Across the archive:**
 
 ```bash
-sbatch --array=0-9 slurm/infer_wsi_batch.sbatch
+bash slurm/submit.sh infer
 ```
 
 Each array task takes every Nth slide, writing one GeoJSON per slide into
-`outputs/`. `--array=0-9%4` caps concurrency at four if your allocation is tight.
+`outputs/`. Size the array with `INFER_ARRAY_SIZE` in `slurm/config.env`, and
+cap concurrency with `INFER_ARRAY_THROTTLE` if your allocation is tight.
 
 Empty tiles are skipped by a cheap low-resolution tissue check first — on a real
 slide, which is mostly glass, that is the difference between minutes and hours.
@@ -100,7 +101,7 @@ improves.
 **Nothing is ever copied between machines.** The server, training jobs and
 inference jobs all read and write `bundles/*/models/model.pt` on cluster storage.
 After a batch training job finishes, restart the server (`scancel`, then
-`sbatch slurm/start_label_server.sbatch`) and QuPath is using the new weights.
+`bash slurm/submit.sh server`) and QuPath is using the new weights.
 
 **Objects split across tile boundaries** are merged automatically when tiles
 overlap (`--overlap`, default 64px). The merge joins polygons that actually
