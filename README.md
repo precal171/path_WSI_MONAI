@@ -30,6 +30,10 @@ and even that can run inside a BioHPC remote-desktop session
 Each round of annotation improves the model; each improved model pre-annotates
 the next slides, so you correct predictions instead of drawing from scratch.
 
+**Not a programmer? Start with [docs/researcher_guide.md](docs/researcher_guide.md)**
+— a plain-language, click-by-click guide to annotating and training through the
+BioHPC visualization portal, once the one-time setup below has been done.
+
 ## Quick start
 
 All of this happens on the cluster.
@@ -81,7 +85,7 @@ python tools/batch_infer.py --bundle bundles/nuclei_segmentation \
 | `tools/` | CLIs: data prep, batch inference, synthetic-slide generator |
 | `slurm/` | Apptainer definition, container build, and the sbatch entry points |
 | `qupath/` | How to connect QuPath to the server |
-| `docs/` | Setup, workflow, architecture, bundle design, testing |
+| `docs/` | Setup, workflow, architecture, bundle design, testing, and the non-technical researcher guide |
 | `tests/` | 108 tests, runnable without GPU, slides or QuPath |
 
 ## What works, and what doesn't
