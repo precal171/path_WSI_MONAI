@@ -1,0 +1,142 @@
+{
+    "imports": [
+        "$import glob",
+        "$import os",
+        "$import scripts",
+        "$import scripts.network",
+        "$import scripts.utils"
+    ],
+
+    "_comment_reuse": "This file is consumed three ways: (1) `monai.bundle run` over a folder of PNG patches, (2) scripts/batch_infer.py, which pulls out @preprocessing/@network/@inferer/@postprocessing individually and drives WSI tiling itself, (3) the MONAI Label infer task. Keeping the transform chain here means all three stay in sync -- see docs/bundle_design.md.",
+
+    "bundle_root": ".",
+    "ckpt_dir": "$@bundle_root + '/models'",
+    "ckpt_path": "$@ckpt_dir + '/model.pt'",
+    "input_dir": "$@bundle_root + '/sample_patches'",
+    "output_dir": "$@bundle_root + '/eval'",
+
+    "device": "$torch.device('cuda' if torch.cuda.is_available() else 'cpu')",
+
+    "task_type": "nuclei_segmentation",
+    "in_channels": 3,
+    "num_classes": 1,
+    "dropout": 0.0,
+    "patch_size": [256, 256],
+    "sw_batch_size": 4,
+    "sw_overlap": 0.25,
+    "threshold": 0.5,
+    "num_workers": 2,
+    "amp": true,
+
+    "network_def": {
+        "_target_": "scripts.network.get_network",
+        "task_type": "@task_type",
+        "in_channels": "@in_channels",
+        "num_classes": "@num_classes",
+        "dropout": "@dropout"
+    },
+    "network": "$@network_def.to(@device)",
+
+    "_comment_preprocessing": "Must mirror the non-random part of train.json's chain, or inference sees a different input distribution than training did. Defined once as array_transforms and exposed two ways: @preprocessing loads from disk (the standalone bundle path), @array_preprocessing takes an in-memory CHW array (what batch_infer.py and the MONAI Label infer task feed it, since patches come from a WSI reader rather than a file).",
+    "array_transforms": [
+        {
+            "_target_": "monai.transforms.ScaleIntensityRanged",
+            "keys": "image",
+            "a_min": 0.0,
+            "a_max": 255.0,
+            "b_min": 0.0,
+            "b_max": 1.0,
+            "clip": true
+        },
+        {
+            "_target_": "monai.transforms.EnsureTyped",
+            "keys": "image"
+        }
+    ],
+    "preprocessing": {
+        "_target_": "monai.transforms.Compose",
+        "transforms": "$[monai.transforms.LoadImaged(keys='image', image_only=True, ensure_channel_first=True)] + @array_transforms"
+    },
+    "array_preprocessing": {
+        "_target_": "monai.transforms.Compose",
+        "transforms": "@array_transforms"
+    },
+
+    "inferer": {
+        "_target_": "monai.inferers.SlidingWindowInferer",
+        "roi_size": "@patch_size",
+        "sw_batch_size": "@sw_batch_size",
+        "overlap": "@sw_overlap"
+    },
+
+    "postprocessing": {
+        "_target_": "monai.transforms.Compose",
+        "transforms": [
+            {
+                "_target_": "monai.transforms.Activationsd",
+                "keys": "pred",
+                "sigmoid": true
+            },
+            {
+                "_target_": "monai.transforms.AsDiscreted",
+                "keys": "pred",
+                "threshold": "@threshold"
+            }
+        ]
+    },
+
+    "_comment_standalone": "Everything below is only used by the standalone `monai.bundle run` path over a folder of patches. batch_infer.py ignores it.",
+    "datalist": "$[{'image': p} for p in sorted(glob.glob(os.path.join(@input_dir, '*.png')))]",
+    "dataset": {
+        "_target_": "monai.data.Dataset",
+        "data": "@datalist",
+        "transform": "@preprocessing"
+    },
+    "dataloader": {
+        "_target_": "monai.data.DataLoader",
+        "dataset": "@dataset",
+        "batch_size": 1,
+        "shuffle": false,
+        "num_workers": "@num_workers"
+    },
+    "save_postprocessing": {
+        "_target_": "monai.transforms.Compose",
+        "transforms": [
+            {
+                "_target_": "monai.transforms.Activationsd",
+                "keys": "pred",
+                "sigmoid": true
+            },
+            {
+                "_target_": "monai.transforms.AsDiscreted",
+                "keys": "pred",
+                "threshold": "@threshold"
+            },
+            {
+                "_target_": "monai.transforms.SaveImaged",
+                "keys": "pred",
+                "output_dir": "@output_dir",
+                "output_ext": ".png",
+                "output_postfix": "mask",
+                "scale": 255,
+                "resample": false,
+                "separate_folder": false
+            }
+        ]
+    },
+    "evaluator": {
+        "_target_": "monai.engines.SupervisedEvaluator",
+        "device": "@device",
+        "val_data_loader": "@dataloader",
+        "network": "@network",
+        "inferer": "@inferer",
+        "postprocessing": "@save_postprocessing",
+        "amp": "@amp"
+    },
+
+    "run": [
+        "$os.makedirs(@output_dir, exist_ok=True)",
+        "$scripts.utils.load_weights(@network, @ckpt_path, @device)",
+        "$@evaluator.run()"
+    ]
+}

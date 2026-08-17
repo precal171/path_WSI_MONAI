@@ -1,0 +1,77 @@
+# FALLBACK ONLY -- a conda environment built on BioHPC.
+#
+# The supported path for this project is the Apptainer container
+# (slurm/apptainer.def + slurm/build_container.sh). Use this file only if your
+# BioHPC does not permit users to build or run Apptainer images.
+#
+# Either way this is created ON THE CLUSTER, not on your own machine:
+#
+#     ssh <you>@<biohpc-login-host>
+#     cd /path/to/path_WSI_MONAI
+#     conda env create -f environment.yml
+#     conda activate path-wsi-monai
+#     pip install -e .
+#
+# Then drop the `apptainer exec ...` prefix from the sbatch scripts and activate
+# this environment instead -- see the notes at the top of each script in slurm/.
+#
+# The main reason to use conda rather than pip here is `openslide`: the Python
+# binding wraps a C library that you normally need root to install. conda-forge
+# ships it without root, which matters on a shared cluster.
+
+name: path-wsi-monai
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+
+  # WSI system libraries (this is what conda buys us over pip)
+  - openslide
+  - openslide-python>=1.3.0
+
+  # Scientific stack (conda builds link against optimised BLAS)
+  # <2 because pydicom_seg, pulled in by monailabel's DICOM import chain, pins
+  # numpy<2; mixing them gives "numpy.dtype size changed" at import. Matches the
+  # pin in requirements-train.txt.
+  - numpy>=1.24,<2
+  - scipy>=1.10
+  - scikit-image>=0.21
+  - shapely>=2.0
+  - tifffile>=2023.7.10
+  - imagecodecs>=2023.7.10
+  - pillow>=10.0
+  - pyyaml>=6.0
+  - tqdm>=4.65
+
+  # Dev tooling
+  - pytest>=7.4
+
+  # PyTorch: pick the build matching your cluster's CUDA driver. Run `nvidia-smi`
+  # on a BioHPC GPU node to see the driver/CUDA version, then set pytorch-cuda
+  # accordingly. Left commented so the env doesn't silently install a CPU build.
+  # - pytorch>=2.0
+  # - pytorch-cuda=12.1
+
+  - pip
+  - pip:
+      # Via pip because conda-forge lags on these.
+      - monai>=1.3.0
+      - monailabel>=0.8.0
+      - opencv-python-headless>=4.8.0
+      - tensorboard>=2.14
+
+      # Required, not optional -- `python -m monai.bundle run` (used by all
+      # three sbatch scripts) needs fire, and MONAI's SupervisedTrainer and
+      # handlers are built on ignite.
+      - fire>=0.5.0
+      - pytorch-ignite>=0.4.11
+
+      # monailabel imports its DICOM datastore at module load even though a WSI
+      # workflow never touches DICOM, and that chain breaks with current
+      # releases in both directions: pydicom>=3 breaks pydicom_seg, pydicom<3
+      # breaks dicomweb_client. Keep these in step with requirements-train.txt,
+      # which explains the knot in full.
+      - pydicom<3
+      - dicomweb-client<0.60

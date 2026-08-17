@@ -1,0 +1,45 @@
+# Dependencies for the MONAI Label annotation server and GPU training.
+#
+# Like requirements.txt, this is consumed by the Apptainer build on BioHPC, not
+# installed locally. Together the two files define the container contents:
+#     pip install -r requirements.txt -r requirements-train.txt
+
+-r requirements.txt
+
+# MONAI Label: the annotation server QuPath talks to over REST.
+# NOTE: the import paths for TaskConfig / BasicInferTask / BasicTrainTask /
+# Strategy have moved between MONAI Label releases. monai_pathology/lib/_compat.py
+# resolves them at import time; pin this once your container works.
+monailabel>=0.8.0
+
+# --- MONAI Label's DICOM dependency knot ------------------------------------
+# monailabel imports its DICOM datastore at module load, even though a pathology
+# WSI workflow never touches DICOM. That import chain is currently broken with
+# the newest releases of its own dependencies, in two directions at once:
+#
+#   pydicom>=3   -> pydicom_seg fails (pydicom._storage_sopclass_uids removed)
+#   pydicom<3    -> dicomweb_client fails (needs pydicom.encaps.parse_basic_offsets)
+#
+# The combination below was verified to import cleanly. Symptom if you get it
+# wrong: `import monailabel.interfaces.app` dies with ModuleNotFoundError or
+# ImportError deep inside a DICOM package, and the server never starts.
+# Re-check these when you bump monailabel.
+pydicom<3
+dicomweb-client<0.60
+
+# pydicom_seg pins numpy<2, and it is pulled in by the same chain. If you hit
+# "numpy.dtype size changed" or an opencv/imagecodecs numpy conflict, this is
+# why. Prefer numpy<2 for the container that runs the *server*; training and
+# batch inference alone have no such constraint.
+numpy<2
+
+# Training-time monitoring
+tensorboard>=2.14
+pytorch-ignite>=0.4.11   # MONAI's SupervisedTrainer/handlers are built on ignite
+
+# Optional GPU-accelerated WSI reading.
+# DELIBERATELY COMMENTED OUT: cuCIM pins to a specific CUDA version and is a
+# common source of breakage inside Apptainer on shared clusters, where the host
+# driver is fixed and not under your control. Get the pipeline working with the
+# OpenSlide backend first, then try this as an optimisation.
+# cucim-cu12>=24.4.0

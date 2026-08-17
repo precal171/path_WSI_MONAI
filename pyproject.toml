@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monai-pathology"
+version = "0.1.0"
+description = "MONAI Label + MONAI Core pipeline for whole-slide pathology image annotation, training and batch inference, driven from QuPath."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+
+# Runtime deps are kept in requirements.txt so that the Apptainer build and the
+# pip install path stay in sync. Install with:
+#     pip install -r requirements.txt -r requirements-train.txt && pip install -e .
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[tool.setuptools.packages.find]
+# tools/ is not just developer scripts: the MONAI Label trainer imports
+# tools.prepare_training_data at runtime to cut patches from freshly submitted
+# QuPath annotations. Excluding it made `pip install .` (non-editable) raise
+# ModuleNotFoundError the first time a user pressed Train.
+include = ["monai_pathology*", "tools*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Tests that need a real WSI, a GPU, or a running MONAI Label server are marked
+# and deselected by default: `pytest -m "not requires_gpu and not requires_wsi"`.
+markers = [
+    "requires_gpu: needs a CUDA device",
+    "requires_wsi: needs a real whole-slide image on disk",
+    "requires_monailabel: needs the monailabel package installed",
+    "slow: trains a real model on CPU; deselect with -m \"not slow\"",
+]

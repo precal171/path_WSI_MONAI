@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Whole-slide images and derived data (never commit these)
+*.svs
+*.ndpi
+*.scn
+*.mrxs
+*.vms
+*.vmu
+*.czi
+*.bif
+data/
+datasets/
+patches/
+
+# Model weights / checkpoints / training output
+*.pt
+*.pth
+*.ts
+# Ignore the contents, not the directory itself -- git cannot re-include a file
+# whose parent directory is excluded, and the .gitkeep below has to survive so a
+# fresh clone still has somewhere for checkpoints to land.
+bundles/*/models/*
+runs/
+logs/
+tensorboard/
+
+# MONAI Label server working state
+.monailabel/
+*.db
+
+# Inference output
+outputs/
+predictions/
+*.geojson
+
+# ...but keep directory placeholders and small test fixtures
+!bundles/*/models/.gitkeep
+!tests/fixtures/**
+
+# HPC
+*.sif
+slurm/config.env
+slurm-*.out
+slurm-*.err
+
+# OS
+.DS_Store
+Thumbs.db
