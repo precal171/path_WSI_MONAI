@@ -87,14 +87,14 @@ The port is randomised per job because compute nodes are shared and a hard-coded
 
 ## 5. Connect QuPath
 
-Two options. QuPath is a desktop GUI, so it has to run *somewhere* — but neither
-option puts any Python, MONAI or CUDA on your machine.
+Three options. QuPath is a desktop GUI, so it has to run *somewhere* — but none
+of them puts any Python, MONAI or CUDA on your machine.
 
 ### A. QuPath inside a BioHPC remote-desktop session (preferred)
 
-If your BioHPC provides a remote desktop, Open OnDemand, or a web visualization
-portal — many do — launch a session, run QuPath there, and point it straight at
-the node:
+If your BioHPC provides a remote desktop, Open OnDemand, a web visualization
+portal, or astrocyte — many do — launch a session, run QuPath there, and point
+it straight at the node:
 
 ```
 http://<node>:<port>
@@ -102,6 +102,16 @@ http://<node>:<port>
 
 Nothing is installed locally at all, and you are not moving slide pixels across
 the internet, which makes panning around a slide far more responsive.
+
+**If using astrocyte:** Astrocyte is a Singularity container orchestration
+platform that some BioHPC sites use to provide remote desktop access. It works
+seamlessly with this pipeline since we already use Singularity/Apptainer
+containers. If your site uses astrocyte:
+- Launch an astrocyte desktop session from your BioHPC portal
+- Open a terminal inside the astrocyte session and follow the SLURM commands
+  in `[../docs/researcher_guide.md](../docs/researcher_guide.md)` exactly as written
+- QuPath and the MONAI Label server both run inside the astrocyte network, so
+  direct connection to `http://<node>:<port>` works without any tunneling
 
 ### B. QuPath on your own computer, over an SSH tunnel
 

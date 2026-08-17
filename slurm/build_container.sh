@@ -6,6 +6,10 @@
 # Run this on a login node (or an interactive node if your site forbids builds
 # on login nodes -- check local policy, image builds are CPU and I/O heavy).
 #
+# This works with both Apptainer and Singularity, including sites using astrocyte
+# container orchestration (just set APPTAINER_BIN=singularity in config.env if
+# your cluster names it 'singularity' rather than 'apptainer').
+#
 # Clusters vary in whether unprivileged users may build images at all. This
 # script tries the options in order of preference and tells you what to do if
 # none work:
