@@ -30,7 +30,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
 import numpy as np
 
@@ -327,6 +327,35 @@ def annotations_to_mask(
 # --------------------------------------------------------------------------
 
 
+def _iter_instances(class_mask: np.ndarray) -> Iterator[tuple[np.ndarray, tuple[int, int]]]:
+    """Yield ``(sub_mask, (x_offset, y_offset))`` per connected component.
+
+    Each component is cropped to its own bounding box rather than returned as a
+    full-tile boolean array. A dense tile can hold thousands of nuclei, and one
+    tile-sized mask each puts peak memory at ``objects x tile area`` -- roughly
+    131 MB for a 512x512 tile with 500 nuclei, repeated for every tile in the
+    slide. Cropping makes it proportional to the largest single object instead.
+
+    The crop is padded by one pixel so that a component touching its bounding
+    box edge traces the same contour it would have in the full tile; the offset
+    accounts for that padding.
+    """
+    from scipy import ndimage
+
+    # 3x3 structure == skimage's connectivity=2 (diagonals count as connected).
+    components, count = ndimage.label(class_mask, structure=np.ones((3, 3), dtype=bool))
+    if not count:
+        return
+
+    for index, bbox in enumerate(ndimage.find_objects(components), start=1):
+        if bbox is None:
+            continue
+        rows, cols = bbox
+        sub = np.zeros((rows.stop - rows.start + 2, cols.stop - cols.start + 2), dtype=bool)
+        sub[1:-1, 1:-1] = components[rows, cols] == index
+        yield sub, (cols.start - 1, rows.start - 1)
+
+
 def _find_contours(binary: np.ndarray) -> list[tuple[np.ndarray, list[np.ndarray]]]:
     """Trace a binary mask into ``(exterior, interiors)`` pairs of ``(col, row)``.
 
@@ -434,24 +463,18 @@ def mask_to_annotations(
         label = value_to_label.get(value, "Region" if label_map is None else None)
         class_mask = mask == value
 
-        if separate_instances:
-            from skimage import measure
+        pieces = _iter_instances(class_mask) if separate_instances else iter([(class_mask, (0, 0))])
 
-            components = measure.label(class_mask, connectivity=2)
-            pieces = [components == i for i in range(1, int(components.max()) + 1)]
-        else:
-            pieces = [class_mask]
-
-        for piece in pieces:
-            if min_area > 0 and piece.sum() < min_area:
+        for piece, offset in pieces:
+            if min_area > 0 and int(piece.sum()) < min_area:
                 continue
             for exterior, interiors in _find_contours(piece):
-                exterior = _maybe_simplify(exterior, simplify_tolerance)
+                exterior = _maybe_simplify(exterior + offset, simplify_tolerance)
                 if len(exterior) < 3:
                     continue
                 rings = []
                 for interior in interiors:
-                    interior = _maybe_simplify(interior, simplify_tolerance)
+                    interior = _maybe_simplify(interior + offset, simplify_tolerance)
                     if len(interior) >= 3:
                         rings.append(region.to_slide(interior))
                 annotations.append(

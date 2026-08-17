@@ -99,9 +99,16 @@ pipeline or the SLURM scripts is task-specific.
 Already generic: `scripts/network.py` (three task types), `geojson_utils`
 (multi-class masks natively), `prepare_training_data.py` (multiple `--labels`).
 
-Task-specific and needing work per task: the bundle configs (loss and
-postprocessing differ between binary, multi-class and classification), and mask
-handling in data prep — currently binarised, which multi-class needs to preserve.
+Task-specific and needing work per task: the bundle configs, since loss and
+postprocessing differ between binary, multi-class and classification.
+
+Data prep can already emit either form — `--mask-mode binary` (default) merges
+every class into one foreground to match the binary reference bundle, and
+`--mask-mode class-index` preserves one value per class. Both warn about what
+they are doing when several `--labels` are in play, because a multi-class
+annotation set silently flattened to binary is a costly thing to notice late.
+`class-index` output needs a multi-class bundle to be trainable: the current
+transforms rescale 0-255 to 0-1, which would push class 1 to ~0.004.
 
 `lib/configs/tissue_segmentation.py` and `tile_classification.py` spell out what
 remains for each, and raise on `init()` rather than half-working.

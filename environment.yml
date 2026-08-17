@@ -32,7 +32,10 @@ dependencies:
   - openslide-python>=1.3.0
 
   # Scientific stack (conda builds link against optimised BLAS)
-  - numpy>=1.24
+  # <2 because pydicom_seg, pulled in by monailabel's DICOM import chain, pins
+  # numpy<2; mixing them gives "numpy.dtype size changed" at import. Matches the
+  # pin in requirements-train.txt.
+  - numpy>=1.24,<2
   - scipy>=1.10
   - scikit-image>=0.21
   - shapely>=2.0
@@ -58,3 +61,17 @@ dependencies:
       - monailabel>=0.8.0
       - opencv-python-headless>=4.8.0
       - tensorboard>=2.14
+
+      # Required, not optional -- `python -m monai.bundle run` (used by all
+      # three sbatch scripts) needs fire, and MONAI's SupervisedTrainer and
+      # handlers are built on ignite.
+      - fire>=0.5.0
+      - pytorch-ignite>=0.4.11
+
+      # monailabel imports its DICOM datastore at module load even though a WSI
+      # workflow never touches DICOM, and that chain breaks with current
+      # releases in both directions: pydicom>=3 breaks pydicom_seg, pydicom<3
+      # breaks dicomweb_client. Keep these in step with requirements-train.txt,
+      # which explains the knot in full.
+      - pydicom<3
+      - dicomweb-client<0.60

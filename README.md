@@ -86,7 +86,7 @@ python tools/batch_infer.py --bundle bundles/nuclei_segmentation \
 | `slurm/` | Apptainer definition, container build, and the sbatch entry points |
 | `qupath/` | How to connect QuPath to the server |
 | `docs/` | Setup, workflow, architecture, bundle design, testing, and the non-technical researcher guide |
-| `tests/` | 108 tests, runnable without GPU, slides or QuPath |
+| `tests/` | 130 tests, runnable without GPU, slides or QuPath |
 
 ## What works, and what doesn't
 

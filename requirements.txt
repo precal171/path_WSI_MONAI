@@ -5,8 +5,14 @@
 # docs/biohpc_setup.md -- the container is the only environment in this project.
 #
 # Enough on its own to run: the GeoJSON <-> mask utilities, MONAI Bundle config
-# parsing, CPU inference, prepare_training_data.py and batch_infer.py.
-# Interactive annotation and GPU training additionally need requirements-train.txt.
+# parsing, tools/prepare_training_data.py and tools/batch_infer.py (which drives
+# the network directly rather than through an engine).
+#
+# NOT enough for `python -m monai.bundle run` against inference.json: its `run`
+# section builds a SupervisedEvaluator, and MONAI's engines and handlers are
+# built on pytorch-ignite, which lives in requirements-train.txt. Interactive
+# annotation and training need that file too. If you only ever intend to run
+# batch inference, install both anyway -- the extra weight is small next to torch.
 #
 # Lower bounds only. Once you have a container that works on your cluster, pin
 # these exactly (==) so rebuilds stay reproducible.

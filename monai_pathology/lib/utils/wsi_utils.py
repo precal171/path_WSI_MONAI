@@ -286,6 +286,26 @@ def tile_regions(
         )
         return
 
-    for y in range(y0, y1 - span_h + 1, step_h) or [y0]:
-        for x in range(x0, x1 - span_w + 1, step_w) or [x0]:
+    for y in _axis_origins(y0, y1, span_h, step_h):
+        for x in _axis_origins(x0, x1, span_w, step_w):
             yield Region(x=x, y=y, width=span_w, height=span_h, downsample=downsample)
+
+
+def _axis_origins(start: int, end: int, span: int, step: int) -> list[int]:
+    """Tile origins along one axis, covering ``[start, end)`` completely.
+
+    A plain ``range(start, end - span + 1, step)`` stops short whenever the axis
+    length is not an exact multiple of the step, leaving up to ``span - 1``
+    pixels at the far edge untiled -- nuclei there would never be trained on or
+    inferred. The final origin is therefore pulled back to ``end - span`` so the
+    last tile ends exactly on the edge. That tile overlaps its neighbour, which
+    is fine for inference (predictions are stitched) and for training (patches
+    are independent samples), and it keeps every tile the same shape, which is
+    what batching needs.
+    """
+    if end - start < span:
+        return []
+    origins = list(range(start, end - span + 1, step))
+    if origins[-1] != end - span:
+        origins.append(end - span)
+    return origins

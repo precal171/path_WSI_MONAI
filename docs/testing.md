@@ -5,7 +5,7 @@ python -m pytest tests/                 # everything, ~45s
 python -m pytest tests/ -m "not slow"   # skip the CPU training run, ~10s
 ```
 
-108 tests. None needs a GPU, a real slide, QuPath, or a running server.
+130 tests. None needs a GPU, a real slide, QuPath, or a running server.
 
 ## What the suite actually covers
 

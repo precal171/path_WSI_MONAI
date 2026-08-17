@@ -19,7 +19,11 @@ dependencies = []
 dev = ["pytest>=7.4"]
 
 [tool.setuptools.packages.find]
-include = ["monai_pathology*"]
+# tools/ is not just developer scripts: the MONAI Label trainer imports
+# tools.prepare_training_data at runtime to cut patches from freshly submitted
+# QuPath annotations. Excluding it made `pip install .` (non-editable) raise
+# ModuleNotFoundError the first time a user pressed Train.
+include = ["monai_pathology*", "tools*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

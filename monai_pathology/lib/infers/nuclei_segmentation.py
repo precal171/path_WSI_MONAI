@@ -53,7 +53,8 @@ class NucleiSegmentationInfer(BasicInferTask):
         self.downsample = downsample
         self.min_poly_area = min_poly_area
         self.simplify_tolerance = simplify_tolerance
-        self._pieces: dict[str, Any] | None = None
+        #: Keyed by device string -- see :meth:`_load_pieces`.
+        self._pieces: dict[str, dict[str, Any]] = {}
 
         super().__init__(
             path=path,
@@ -71,14 +72,17 @@ class NucleiSegmentationInfer(BasicInferTask):
     # ------------------------------------------------------------------
 
     def _load_pieces(self, device: torch.device) -> dict[str, Any]:
-        """Resolve network + transforms from the bundle, once per process.
+        """Resolve network + transforms from the bundle, once per device.
 
         Cached because MONAI Label calls inference once per user interaction and
         rebuilding the network each time would make the round trip feel slow in
-        QuPath.
+        QuPath. The cache is keyed by device: a network built for ``cuda:0`` must
+        not be handed back for a request naming ``cpu`` or ``cuda:1``, which
+        would fail with a cross-device tensor error mid-forward-pass.
         """
-        if self._pieces is not None:
-            return self._pieces
+        key = str(device)
+        if key in self._pieces:
+            return self._pieces[key]
 
         import sys
 
@@ -89,7 +93,17 @@ class NucleiSegmentationInfer(BasicInferTask):
 
         parser = ConfigParser()
         parser.read_config(os.path.join(self.bundle_root, "configs", "inference.json"))
-        parser.update({"bundle_root": self.bundle_root, "device": device})
+        # patch_size must go through the parser, not just onto self: the inferer's
+        # roi_size is resolved from the config, so a `--conf patch_size` that only
+        # reached self.roi_size would leave the sliding window at the bundle's
+        # default while everything else used the requested size.
+        parser.update(
+            {
+                "bundle_root": self.bundle_root,
+                "device": device,
+                "patch_size": [int(self.roi_size[0]), int(self.roi_size[1])],
+            }
+        )
 
         network = parser.get_parsed_content("network")
 
@@ -98,13 +112,14 @@ class NucleiSegmentationInfer(BasicInferTask):
         load_weights(network, self.path if isinstance(self.path, str) else self.path[0], device)
         network.eval()
 
-        self._pieces = {
+        pieces = {
             "network": network,
             "preprocessing": parser.get_parsed_content("array_preprocessing"),
             "inferer": parser.get_parsed_content("inferer"),
             "threshold": float(parser.get_parsed_content("threshold")),
         }
-        return self._pieces
+        self._pieces[key] = pieces
+        return pieces
 
     # ------------------------------------------------------------------
     # The actual work -- no MONAI Label types involved

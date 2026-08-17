@@ -127,8 +127,16 @@ def process_slide(
     background_fraction: float = 0.0,
     backend: str = DEFAULT_BACKEND,
     seed: int = 0,
+    mask_mode: str = "binary",
 ) -> list[dict[str, str]]:
-    """Cut one slide into patch/mask pairs. Returns manifest entries."""
+    """Cut one slide into patch/mask pairs. Returns manifest entries.
+
+    Args:
+        mask_mode: ``"binary"`` writes 0/255 foreground masks, which is what the
+            nuclei_segmentation bundle expects. ``"class-index"`` preserves one
+            grey value per class for a multi-class bundle -- see the warning in
+            :func:`_resolve_mask_mode`.
+    """
     stride = stride or patch_size
     rng = np.random.default_rng(seed)
 
@@ -147,6 +155,7 @@ def process_slide(
         return []
 
     label_map = {name: i + 1 for i, name in enumerate(labels)}
+    _resolve_mask_mode(mask_mode, labels)
     info = get_slide_info(slide_path, backend=backend)
     reader, wsi = open_slide(slide_path, backend=backend)
 
@@ -185,8 +194,11 @@ def process_slide(
         mask_path = os.path.join(mask_dir, f"{name}.png")
 
         Image.fromarray(patch.astype(np.uint8)).save(image_path)
-        # Scale to 0/255 so masks are viewable; train.json rescales them back.
-        Image.fromarray((mask > 0).astype(np.uint8) * 255).save(mask_path)
+        if mask_mode == "class-index":
+            Image.fromarray(mask.astype(np.uint8)).save(mask_path)
+        else:
+            # Scale to 0/255 so masks are viewable; train.json rescales them back.
+            Image.fromarray((mask > 0).astype(np.uint8) * 255).save(mask_path)
 
         entries.append({"image": os.path.abspath(image_path), "label": os.path.abspath(mask_path), "slide": stem})
 
@@ -195,6 +207,37 @@ def process_slide(
         os.path.basename(slide_path), len(entries), kept_background, skipped,
     )
     return entries
+
+
+def _resolve_mask_mode(mask_mode: str, labels: list[str]) -> str:
+    """Validate ``mask_mode`` and say plainly what it does to multiple classes.
+
+    Passing several ``--labels`` builds a label map with a distinct value per
+    class, which reads as multi-class support -- but the reference bundle is
+    binary (one sigmoid channel), so in ``binary`` mode every class is merged
+    into a single foreground. That is a reasonable default, and silently losing
+    the distinction is not, hence the warning.
+    """
+    if mask_mode not in ("binary", "class-index"):
+        raise SystemExit(f"--mask-mode must be 'binary' or 'class-index', got {mask_mode!r}")
+
+    if mask_mode == "binary" and len(labels) > 1:
+        logger.warning(
+            "%d classes requested (%s) but --mask-mode=binary merges them all into one "
+            "foreground class. This matches the nuclei_segmentation bundle, which has a "
+            "single output channel. Use --mask-mode=class-index to keep them distinct, "
+            "but note you will also need a multi-class bundle to train on the result.",
+            len(labels), ", ".join(labels),
+        )
+    elif mask_mode == "class-index":
+        logger.warning(
+            "--mask-mode=class-index writes raw class values (1..%d). The bundled "
+            "nuclei_segmentation config cannot train on these -- its transforms rescale "
+            "0-255 to 0-1, so class 1 becomes ~0.004 and is indistinguishable from "
+            "background. Pair this with a multi-class bundle.",
+            len(labels),
+        )
+    return mask_mode
 
 
 def _pair_inputs(args: argparse.Namespace) -> list[tuple[str, str]]:
@@ -277,6 +320,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backend", default=DEFAULT_BACKEND,
                         help="WSI backend: OpenSlide (default), TiffFile, or cuCIM")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--mask-mode", default="binary", choices=("binary", "class-index"),
+        help="binary (default) merges every --labels class into one foreground, which is "
+             "what the nuclei_segmentation bundle trains on. class-index keeps one grey "
+             "value per class and needs a multi-class bundle to be useful.",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -298,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
                 background_fraction=args.background_fraction,
                 backend=args.backend,
                 seed=args.seed,
+                mask_mode=args.mask_mode,
             )
         )
 
@@ -309,6 +359,11 @@ def main(argv: list[str] | None = None) -> int:
         "task": "nuclei_segmentation",
         "created": datetime.now(timezone.utc).isoformat(),
         "labels": args.labels,
+        "mask_mode": args.mask_mode,
+        # Records that a multi-class annotation set was flattened, so a later
+        # reader of this manifest can tell a genuinely binary dataset from a
+        # collapsed one rather than having to guess from the label list.
+        "classes_merged": args.mask_mode == "binary" and len(args.labels) > 1,
         "patch_size": [args.patch_size, args.patch_size],
         "downsample": args.downsample,
         "num_patches": len(entries),

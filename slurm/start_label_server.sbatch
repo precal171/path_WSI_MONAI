@@ -46,7 +46,7 @@ WSI_DIR="${WSI_DIR:?Set WSI_DIR in slurm/config.env}"
 # Pick a free high port. Compute nodes are shared, and a hard-coded 8000 will
 # eventually collide with another user's job; that failure is confusing because
 # the server appears to start and then nothing can reach it.
-PORT="${MONAILABEL_PORT_OVERRIDE:-0}"
+PORT="${MONAILABEL_PORT:-0}"
 if [[ "$PORT" == "0" ]]; then
     PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
 fi
