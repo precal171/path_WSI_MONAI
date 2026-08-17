@@ -2,27 +2,22 @@
 #SBATCH --job-name=wsi-infer
 #SBATCH --output=logs/infer_%A_%a.out
 #SBATCH --error=logs/infer_%A_%a.err
-#SBATCH --array=0-3
 #
-# Resource directives come from slurm/config.env; or uncomment and edit:
-##SBATCH --partition=GPUp4
-##SBATCH --gres=gpu:1
-##SBATCH --cpus-per-task=8
-##SBATCH --mem=64G
-##SBATCH --time=08:00:00
+# DO NOT sbatch this file directly: #SBATCH directives are parsed before the
+# shell runs, so nothing here can read config.env -- a bare submission gets NO
+# partition, NO GPU and no job array. Submit through the wrapper, which passes
+# the resources and the array size (INFER_ARRAY_SIZE) from slurm/config.env:
+#
+#     bash slurm/submit.sh infer
 #
 # Apply a trained model across a slide archive, writing one GeoJSON per slide
 # for import back into QuPath.
 #
-#     mkdir -p logs
-#     sbatch --array=0-9 --partition=<PARTITION> --gres=gpu:1 \
-#            slurm/infer_wsi_batch.sbatch
-#
 # Runs as a job array: each task takes every Nth slide, so ten array tasks means
-# ten slides in flight. Size the array to the number of slides and how many GPUs
-# your allocation realistically gets -- `--array=0-9%4` caps it at four at once.
-#
-# %A is the array job id and %a the task index, so each task logs separately.
+# ten slides in flight. Size INFER_ARRAY_SIZE to the number of slides and how
+# many GPUs your allocation realistically gets; INFER_ARRAY_THROTTLE caps
+# concurrency. %A is the array job id and %a the task index, so each task logs
+# separately.
 
 set -euo pipefail
 
@@ -38,11 +33,20 @@ else
 fi
 
 PROJECT_DIR="${PROJECT_DIR:-$PROJECT_ROOT}"
-CONTAINER="${CONTAINER:-$PROJECT_DIR/path_wsi_monai.sif}"
-APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
+CONTAINER="${CONTAINER:-$PROJECT_DIR/monai_base.sif}"
+VENV_DIR="${VENV_DIR:-}"
+APPTAINER_BIN="${APPTAINER_BIN:-singularity}"
 BUNDLE="${BUNDLE:-$PROJECT_DIR/bundles/nuclei_segmentation}"
 INPUT_DIR="${INFER_INPUT_DIR:-${WSI_DIR:?Set WSI_DIR in slurm/config.env}}"
 OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/outputs}"
+
+# With the pull+venv setup, project packages live in the venv, not the image.
+PYTHON_CMD=python
+VENV_BIND=""
+if [[ -n "$VENV_DIR" ]]; then
+    PYTHON_CMD="$VENV_DIR/bin/python"
+    VENV_BIND="--bind $(dirname "$VENV_DIR"):$(dirname "$VENV_DIR")"
+fi
 
 SHARD_INDEX="${SLURM_ARRAY_TASK_ID:-0}"
 SHARD_COUNT="${SLURM_ARRAY_TASK_COUNT:-1}"
@@ -54,7 +58,7 @@ mkdir -p "${LOG_DIR:-$PROJECT_DIR/logs}" "$OUTPUT_DIR"
 
 if [[ ! -f "$BUNDLE/models/model.pt" ]]; then
     echo "ERROR: no trained weights at $BUNDLE/models/model.pt" >&2
-    echo "       Train first: sbatch slurm/train_bundle.sbatch" >&2
+    echo "       Train first: bash slurm/submit.sh train" >&2
     exit 1
 fi
 
@@ -70,7 +74,7 @@ BIND_ARG=""
 [[ -n "${BIND_PATHS:-}" ]] && BIND_ARG="--bind $BIND_PATHS"
 
 run_inference() {
-    "$@" python tools/batch_infer.py \
+    "$@" "$PYTHON_CMD" tools/batch_infer.py \
         --bundle "$BUNDLE" \
         --input-dir "$INPUT_DIR" \
         --output-dir "$OUTPUT_DIR" \
@@ -89,10 +93,11 @@ if [[ "${USE_CONDA:-0}" == "1" ]]; then
     # shellcheck disable=SC1091
     source "$(conda info --base)/etc/profile.d/conda.sh"
     conda activate path-wsi-monai
+    PYTHON_CMD=python
     run_inference
 else
     [[ -f "$CONTAINER" ]] || { echo "ERROR: no container at $CONTAINER -- run bash slurm/build_container.sh" >&2; exit 1; }
-    run_inference "$APPTAINER_BIN" exec --nv $BIND_ARG \
+    run_inference "$APPTAINER_BIN" exec --nv $BIND_ARG $VENV_BIND \
         --bind "$PROJECT_DIR:$PROJECT_DIR" --bind "$INPUT_DIR:$INPUT_DIR" "$CONTAINER"
 fi
 

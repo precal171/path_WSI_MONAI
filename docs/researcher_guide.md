@@ -24,11 +24,12 @@ All of the computing happens on your university's shared research computer
 
 ## What you'll need
 
-- A BioHPC account and access to its **visualization portal** — this is a
+- A BioHPC account and access to its **Web Visualization portal** — this is a
   website where you get a virtual desktop running on the cluster, so that
   programs like QuPath appear in your browser as if they were on your own
-  computer. Ask your BioHPC helpdesk for the exact web address and how to log
-  in if you don't already use this.
+  computer. At UTSW this is the "Web Visualization" page on the BioHPC portal
+  (portal.biohpc.swmed.edu), also reachable through BioHPC OnDemand. Ask the
+  BioHPC helpdesk how to log in if you don't already use it.
 - Your slide images already on the cluster's storage. Ask whoever set this up
   (or your BioHPC storage admin) where they are — you'll need that folder path
   once, to give to IT/the technical setup person, and it's already configured
@@ -57,7 +58,7 @@ unsure):
 
 ```
 cd path_wsi_monai
-sbatch slurm/start_label_server.sbatch
+bash slurm/submit.sh server
 ```
 
 You'll see a short message with a number — that's a **job ID**. This just
@@ -144,7 +145,7 @@ for you, or follow [../docs/workflow.md](../docs/workflow.md) if you're
 comfortable with the terminal):
 
 ```
-sbatch slurm/infer_wsi_batch.sbatch
+bash slurm/submit.sh infer
 ```
 
 This produces a results file for each slide that you can then load into

@@ -5,10 +5,11 @@ A whole-slide pathology pipeline built on NVIDIA MONAI: annotate slides in
 active-learning loop, and apply them across a slide archive with **MONAI Core**.
 
 **Everything runs on BioHPC.** Nothing is installed on your own machine — one
-Apptainer container on the cluster serves the annotation server, training and
-batch inference. Your slides never leave cluster storage, and model weights never
-get copied between machines. The only thing that runs locally is QuPath itself,
-and even that can run inside a BioHPC remote-desktop session
+Singularity/Apptainer container on the cluster (pulled, no build privileges
+needed) serves the annotation server, training and batch inference. Your slides
+never leave cluster storage, and model weights never get copied between
+machines. The only thing that runs locally is QuPath itself, and even that can
+run inside a BioHPC Web Visualization session
 (see [docs/biohpc_setup.md](docs/biohpc_setup.md)).
 
 ## The loop
@@ -39,17 +40,20 @@ BioHPC visualization portal, once the one-time setup below has been done.
 All of this happens on the cluster.
 
 ```bash
-ssh <you>@<biohpc-login-host>
+ssh <you>@nucleus.biohpc.swmed.edu
+cd /project/<your-space>          # NOT $HOME -- the image is ~10 GB
 git clone https://github.com/precal171/path_wsi_monai.git
 cd path_wsi_monai
 
 cp slurm/config.env.example slurm/config.env
 $EDITOR slurm/config.env          # partition, account, WSI_DIR -- see the TODOs
 
-bash slurm/build_container.sh     # builds path_wsi_monai.sif
-mkdir -p logs
+bash slurm/build_container.sh     # pulls the MONAI image + layers a venv (no root needed)
 
-sbatch slurm/start_label_server.sbatch
+# preflight on a GPU node -- the gate for everything else
+srun --partition=GPUA100 --gres=gpu:1 --pty bash slurm/check_env.sh
+
+bash slurm/submit.sh server       # submits with the GPU/partition from config.env
 cat logs/server_*.out             # prints the node, port and how to connect
 ```
 
@@ -83,10 +87,10 @@ python tools/batch_infer.py --bundle bundles/nuclei_segmentation \
 | `monai_pathology/` | The MONAI Label app: infer, train and active-learning tasks |
 | `bundles/nuclei_segmentation/` | MONAI Bundle — network, transforms, training and inference configs |
 | `tools/` | CLIs: data prep, batch inference, synthetic-slide generator |
-| `slurm/` | Apptainer definition, container build, and the sbatch entry points |
+| `slurm/` | Container setup (`build_container.sh`), preflight (`check_env.sh`), and the job entry point (`submit.sh`) |
 | `qupath/` | How to connect QuPath to the server |
 | `docs/` | Setup, workflow, architecture, bundle design, testing, and the non-technical researcher guide |
-| `tests/` | 130 tests, runnable without GPU, slides or QuPath |
+| `tests/` | 146 tests, runnable without GPU, slides or QuPath |
 
 ## What works, and what doesn't
 

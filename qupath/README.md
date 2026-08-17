@@ -59,7 +59,7 @@ fails to improve. [../docs/workflow.md](../docs/workflow.md) covers this.
 
 ## Importing batch predictions
 
-After `slurm/infer_wsi_batch.sbatch`, each slide has a `.geojson` in `outputs/`.
+After `bash slurm/submit.sh infer`, each slide has a `.geojson` in `outputs/`.
 
 **Objects → Import objects**, pick the file.
 
