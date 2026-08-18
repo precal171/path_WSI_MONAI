@@ -42,8 +42,8 @@ these, all of which need your cluster and your data:
 - **Real slide formats.** Everything is tested against synthetic pyramidal TIFFs
   read with the `TiffFile` backend. Actual `.svs`/`.ndpi` via OpenSlide, with
   vendor metadata, odd pyramid layouts and JPEG2000 tiles, is untested here.
-- **The container.** The pulled image and its venv have never been created in
-  this environment. `build_container.sh` verifies every import (including
+- **The cluster environment.** The venv on shared storage has never been
+  created in this environment. `build_env.sh` verifies every import (including
   `monailabel`) as its last step — watch it.
 - **GPU.** No CUDA anywhere. `bash slurm/check_env.sh` on a GPU node checks
   visibility *and* compute capability — step 4 of
@@ -66,18 +66,19 @@ Work in this order — each step's failure is unambiguous, which stops you
 debugging three things at once:
 
 1. `srun --partition=<GPU partition> --gres=gpu:1 --pty bash slurm/check_env.sh`
-   → every line must print `PASS`. This covers the module, the image, the venv,
-   bind paths, GPU visibility, compute capability, `monailabel`, OpenSlide,
-   the slide directory and the log directory in one shot.
-2. `python -m pytest tests/` **inside the container** → the suite should pass
-   there too. If it fails only in the container, it is the image, not the code.
+   → every line must print `PASS`. This covers the venv, GPU visibility,
+   compute capability, `monailabel`, OpenSlide, the project and slide
+   directories and the log directory in one shot.
+2. `$VENV_DIR/bin/python -m pytest tests/` **with the cluster venv** → the
+   suite should pass there too. If it fails only there, it is the environment,
+   not the code.
 3. Read one real slide:
    ```python
    from monai_pathology.lib.utils.wsi_utils import get_slide_info
    print(get_slide_info("/path/to/real.svs", backend="OpenSlide"))
    ```
    Sane dimensions, several levels, and ideally an `mpp` value.
-4. The synthetic walkthrough in the README, end to end, inside the container.
+4. The synthetic walkthrough in the README, end to end, with the cluster venv.
 5. Start the server; confirm QuPath connects and lists slides.
 6. Annotate one region, train, run inference on it. Predictions should land on
    tissue — that is the first evidence the QuPath coordinate contract is right.

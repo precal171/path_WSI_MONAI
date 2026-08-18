@@ -33,22 +33,18 @@ else
 fi
 
 PROJECT_DIR="${PROJECT_DIR:-$PROJECT_ROOT}"
-CONTAINER="${CONTAINER:-$PROJECT_DIR/monai_base.sif}"
-VENV_DIR="${VENV_DIR:-}"
-APPTAINER_BIN="${APPTAINER_BIN:-singularity}"
+VENV_DIR="${VENV_DIR:-$PROJECT_DIR/venv}"
 BUNDLE="${BUNDLE:-$PROJECT_DIR/bundles/nuclei_segmentation}"
 PATCH_DIR="${PATCH_DIR:-$PROJECT_DIR/data/patches}"
 MANIFEST="${MANIFEST:-$PATCH_DIR/manifest.json}"
 
-# With the pull+venv setup, project packages live in the venv, not the image.
-PYTHON_CMD=python
-VENV_BIND=""
-if [[ -n "$VENV_DIR" ]]; then
-    PYTHON_CMD="$VENV_DIR/bin/python"
-    VENV_BIND="--bind $(dirname "$VENV_DIR"):$(dirname "$VENV_DIR")"
+# The venv on shared storage is the whole environment; no module loads needed
+# at job time -- its bin/ binaries resolve on any node that mounts it.
+PYTHON_CMD="$VENV_DIR/bin/python"
+if [[ ! -x "$PYTHON_CMD" ]]; then
+    echo "ERROR: no environment at $VENV_DIR -- run: bash slurm/build_env.sh" >&2
+    exit 1
 fi
-
-[[ -n "${APPTAINER_MODULE:-}" ]] && { module load "$APPTAINER_MODULE" 2>/dev/null || true; }
 
 cd "$PROJECT_DIR"
 mkdir -p "${LOG_DIR:-$PROJECT_DIR/logs}" "$BUNDLE/models"
@@ -79,37 +75,21 @@ echo " epochs    : ${MAX_EPOCHS:-200}   batch: ${BATCH_SIZE:-16}   lr: ${LEARNIN
 echo " GPU       : ${CUDA_VISIBLE_DEVICES:-none allocated}"
 echo "=============================================================="
 
-BIND_ARG=""
-[[ -n "${BIND_PATHS:-}" ]] && BIND_ARG="--bind $BIND_PATHS"
-
 # `finetune=true` continues from models/model.pt. Off by default here: a full
 # batch run is usually meant to retrain properly, whereas interactive updates
 # are the incremental path. Set FINETUNE=true to continue instead.
-run_training() {
-    "$@" "$PYTHON_CMD" -m monai.bundle run \
-        --config_file "$BUNDLE/configs/train.json" \
-        --logging_file "$BUNDLE/configs/logging.conf" \
-        --bundle_root "$BUNDLE" \
-        --manifest "$MANIFEST" \
-        --ckpt_dir "$BUNDLE/models" \
-        --max_epochs "${MAX_EPOCHS:-200}" \
-        --batch_size "${BATCH_SIZE:-16}" \
-        --learning_rate "${LEARNING_RATE:-0.0001}" \
-        --num_workers "${SLURM_CPUS_PER_TASK:-4}" \
-        --finetune "${FINETUNE:-false}" \
-        --amp true
-}
-
-if [[ "${USE_CONDA:-0}" == "1" ]]; then
-    # shellcheck disable=SC1091
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate path-wsi-monai
-    PYTHON_CMD=python
-    run_training
-else
-    [[ -f "$CONTAINER" ]] || { echo "ERROR: no container at $CONTAINER -- run bash slurm/build_container.sh" >&2; exit 1; }
-    run_training "$APPTAINER_BIN" exec --nv $BIND_ARG $VENV_BIND --bind "$PROJECT_DIR:$PROJECT_DIR" "$CONTAINER"
-fi
+"$PYTHON_CMD" -m monai.bundle run \
+    --config_file "$BUNDLE/configs/train.json" \
+    --logging_file "$BUNDLE/configs/logging.conf" \
+    --bundle_root "$BUNDLE" \
+    --manifest "$MANIFEST" \
+    --ckpt_dir "$BUNDLE/models" \
+    --max_epochs "${MAX_EPOCHS:-200}" \
+    --batch_size "${BATCH_SIZE:-16}" \
+    --learning_rate "${LEARNING_RATE:-0.0001}" \
+    --num_workers "${SLURM_CPUS_PER_TASK:-4}" \
+    --finetune "${FINETUNE:-false}" \
+    --amp true
 
 echo
 echo "Done. Checkpoints in $BUNDLE/models:"

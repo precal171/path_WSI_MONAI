@@ -4,10 +4,12 @@ A review of the first cluster-deployment commit found the layer was built on
 wrong assumptions about the site: docs described an "astrocyte desktop" that
 does not exist (Astrocyte is UTSW's Nextflow workflow platform, not a remote
 desktop), every sbatch script had its GPU/partition directives commented out
-and deferred to a submit wrapper that was never written, config.env.example
-defined SLURM settings nothing read while omitting keys the scripts did read,
-and the container path led with a privileged build most cluster users cannot
-run. Each test here pins one of those classes of defect shut.
+and deferred to a submit wrapper that was never written, and config.env.example
+defined SLURM settings nothing read while omitting keys the scripts did read.
+The Apptainer/Singularity container layer was later removed entirely in favour
+of a plain virtualenv (build_env.sh) because the container path proved
+undeployable in practice. Each test here pins one of those classes of defect
+shut.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SLURM_DIR = os.path.join(REPO_ROOT, "slurm")
 
 TEXT_EXTENSIONS = (".py", ".md", ".sh", ".sbatch", ".def", ".txt", ".json", ".yml", ".toml", ".conf", ".example")
-SKIP_DIRS = {".git", ".pytest_cache", "__pycache__", ".apptainer_cache", ".apptainer_tmp", "node_modules"}
+SKIP_DIRS = {".git", ".pytest_cache", "__pycache__", ".pip_cache", "venv", ".venv", "node_modules"}
 
 
 def _tracked_text_files():
@@ -44,17 +46,23 @@ def _read(path):
 # Astrocyte: removed on request. It is a Nextflow workflow-submission platform
 # at UTSW, not a remote desktop or a container runtime -- the docs that said
 # otherwise sent users hunting for a UI that does not exist.
+#
+# Apptainer/Singularity: also removed on request. The container path could not
+# be set up in practice, so the deployment layer now uses a plain virtualenv
+# (slurm/build_env.sh). Any resurfacing reference means the two paths are
+# forking again.
 # ---------------------------------------------------------------------------
 
 
-def test_no_astrocyte_anywhere():
+@pytest.mark.parametrize("banned", ["astrocyte", "apptainer", "singularity"])
+def test_removed_platforms_are_not_mentioned_anywhere(banned):
     offenders = []
     for path in _tracked_text_files():
         if os.path.basename(path) == os.path.basename(__file__):
             continue
-        if "astrocyte" in _read(path).lower():
+        if banned in _read(path).lower():
             offenders.append(os.path.relpath(path, REPO_ROOT))
-    assert not offenders, f"astrocyte mentioned in: {offenders}"
+    assert not offenders, f"{banned} mentioned in: {offenders}"
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +76,7 @@ CONFIG_SCRIPTS = [
     "start_label_server.sbatch",
     "train_bundle.sbatch",
     "infer_wsi_batch.sbatch",
-    "build_container.sh",
+    "build_env.sh",
     "submit.sh",
     "check_env.sh",
 ]
@@ -77,8 +85,6 @@ CONFIG_SCRIPTS = [
 RUNTIME_VARS = {
     "SLURM_JOB_ID", "SLURM_ARRAY_TASK_ID", "SLURM_ARRAY_TASK_COUNT",
     "SLURM_ARRAY_JOB_ID", "SLURM_CPUS_PER_TASK", "CUDA_VISIBLE_DEVICES",
-    "APPTAINER_CACHEDIR", "APPTAINER_TMPDIR",
-    "SINGULARITY_CACHEDIR", "SINGULARITY_TMPDIR",
     "SUBMIT_CONFIG", "SUBMIT_DRYRUN", "OMP_NUM_THREADS",
     "JOBID",  # parsed out of sbatch's own output by submit.sh
 }
@@ -177,7 +183,7 @@ def test_submit_wrapper_refuses_an_empty_partition(tmp_path):
 def test_referenced_helper_scripts_exist():
     """start_label_server.sbatch used to defer its resources to a
     submit_server.sh that was never written."""
-    pattern = re.compile(r"\b(submit[a-z_]*\.sh|check_env\.sh|build_container\.sh|tunnel\.sh)\b")
+    pattern = re.compile(r"\b(submit[a-z_]*\.sh|check_env\.sh|build_env\.sh|tunnel\.sh)\b")
     missing = {}
     search_files = [os.path.join(SLURM_DIR, f) for f in os.listdir(SLURM_DIR)]
     for doc_dir in (os.path.join(REPO_ROOT, "docs"), REPO_ROOT):
@@ -222,40 +228,19 @@ def test_docs_never_tell_the_user_to_sbatch_directly():
 
 
 # ---------------------------------------------------------------------------
-# Container definition and requirements
+# Environment build and requirements
 # ---------------------------------------------------------------------------
 
 
-def test_base_image_is_pinned_everywhere():
-    """A moving :latest made rebuilds non-reproducible and invited CUDA drift."""
-    def_from = re.search(r"^From:\s*(\S+)", _read(os.path.join(SLURM_DIR, "apptainer.def")), re.M)
-    assert def_from, "apptainer.def must have a From: line"
-    image = def_from.group(1)
-    assert ":" in image and not image.endswith(":latest"), f"apptainer.def From is not pinned: {image}"
-
-    example = _read(os.path.join(SLURM_DIR, "config.env.example"))
-    base = re.search(r"^BASE_IMAGE=(\S+)", example, re.M)
-    assert base, "config.env.example must define BASE_IMAGE"
-    assert not base.group(1).endswith(":latest"), f"BASE_IMAGE is not pinned: {base.group(1)}"
-
-
-def test_container_build_checks_the_monailabel_import():
+def test_env_build_checks_the_monailabel_import():
     """The old build check skipped monailabel -- the fragile import and the
-    whole point of the image -- so builds passed and the server died later."""
-    assert '"monailabel"' in _read(os.path.join(SLURM_DIR, "apptainer.def"))
-    assert '"monailabel"' in _read(os.path.join(SLURM_DIR, "build_container.sh"))
-
-
-def test_no_unconstrained_torch_reinstall_in_def():
-    """`pip install --no-deps torch || true` was a no-op that claimed to
-    protect the base image's CUDA torch while doing nothing of the sort."""
-    content = _read(os.path.join(SLURM_DIR, "apptainer.def"))
-    assert "pip install --no-cache-dir --no-deps torch" not in content
-    assert "torch-constraint" in content, "the def should constrain pip to the base image's torch"
+    whole point of the environment -- so builds passed and the server died
+    later."""
+    assert '"monailabel"' in _read(os.path.join(SLURM_DIR, "build_env.sh"))
 
 
 def test_requirements_carry_the_openslide_wheel():
-    """The pull+venv path has no apt: libopenslide must come from the
+    """The venv path has no apt: libopenslide must come from the
     openslide-bin wheel or `import openslide` dies at runtime."""
     content = _read(os.path.join(REPO_ROOT, "requirements.txt"))
     assert re.search(r"^openslide-bin", content, re.M), "requirements.txt must include openslide-bin"
@@ -265,12 +250,10 @@ def test_requirements_carry_the_openslide_wheel():
     )
 
 
-def test_both_cache_variable_families_are_exported():
-    """Only APPTAINER_* was exported; a `singularity` binary ignored it and
-    sent multi-GB pulls into a small shared /tmp."""
-    content = _read(os.path.join(SLURM_DIR, "build_container.sh"))
-    for var in ("APPTAINER_CACHEDIR", "APPTAINER_TMPDIR", "SINGULARITY_CACHEDIR", "SINGULARITY_TMPDIR"):
-        assert f"export {var}=" in content, f"build_container.sh must export {var}"
+def test_pip_cache_stays_on_project_storage():
+    """Torch's CUDA wheel is ~2.5 GB; a default pip cache fills a small $HOME
+    or a shared /tmp. build_env.sh must export PIP_CACHE_DIR."""
+    assert "export PIP_CACHE_DIR=" in _read(os.path.join(SLURM_DIR, "build_env.sh"))
 
 
 def test_every_shell_script_parses():

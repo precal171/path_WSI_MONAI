@@ -1,7 +1,7 @@
 # Dependencies for the MONAI Label annotation server and GPU training.
 #
-# Like requirements.txt, this is consumed by the Apptainer build on BioHPC, not
-# installed locally. Together the two files define the container contents:
+# Like requirements.txt, this is consumed by slurm/build_env.sh on BioHPC, not
+# installed locally. Together the two files define the venv contents:
 #     pip install -r requirements.txt -r requirements-train.txt
 
 -r requirements.txt
@@ -29,7 +29,7 @@ dicomweb-client<0.60
 
 # pydicom_seg pins numpy<2, and it is pulled in by the same chain. If you hit
 # "numpy.dtype size changed" or an opencv/imagecodecs numpy conflict, this is
-# why. Prefer numpy<2 for the container that runs the *server*; training and
+# why. Prefer numpy<2 for the environment that runs the *server*; training and
 # batch inference alone have no such constraint.
 numpy<2
 
@@ -39,7 +39,7 @@ pytorch-ignite>=0.4.11   # MONAI's SupervisedTrainer/handlers are built on ignit
 
 # Optional GPU-accelerated WSI reading.
 # DELIBERATELY COMMENTED OUT: cuCIM pins to a specific CUDA version and is a
-# common source of breakage inside Apptainer on shared clusters, where the host
-# driver is fixed and not under your control. Get the pipeline working with the
-# OpenSlide backend first, then try this as an optimisation.
+# common source of breakage on shared clusters, where the host driver is fixed
+# and not under your control. Get the pipeline working with the OpenSlide
+# backend first, then try this as an optimisation.
 # cucim-cu12>=24.4.0

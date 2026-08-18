@@ -50,10 +50,10 @@ predictions/
 !tests/fixtures/**
 
 # HPC
-*.sif
 slurm/config.env
 slurm-*.out
 slurm-*.err
+.pip_cache/
 
 # OS
 .DS_Store

@@ -10,8 +10,8 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }
 
-# Runtime deps are kept in requirements.txt so that the Apptainer build and the
-# pip install path stay in sync. Install with:
+# Runtime deps are kept in requirements.txt so that the cluster venv build
+# (slurm/build_env.sh) and the pip install path stay in sync. Install with:
 #     pip install -r requirements.txt -r requirements-train.txt && pip install -e .
 dependencies = []
 

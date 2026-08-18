@@ -1,6 +1,6 @@
 # The annotation → training → inference loop
 
-Assumes [biohpc_setup.md](biohpc_setup.md) is done: container built, server
+Assumes [biohpc_setup.md](biohpc_setup.md) is done: environment built, server
 running, QuPath connected.
 
 The idea is that you never annotate a whole slide. You annotate a little, train,
