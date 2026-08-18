@@ -31,23 +31,22 @@ else
 fi
 
 PROJECT_DIR="${PROJECT_DIR:-$PROJECT_ROOT}"
-CONTAINER="${CONTAINER:-$PROJECT_DIR/monai_base.sif}"
-VENV_DIR="${VENV_DIR:-}"
-APPTAINER_BIN="${APPTAINER_BIN:-singularity}"
+VENV_DIR="${VENV_DIR:-$PROJECT_DIR/venv}"
 WSI_DIR="${WSI_DIR:?Set WSI_DIR in slurm/config.env}"
 
-# With the pull+venv setup, project commands live in the venv, not the image.
-MONAILABEL_CMD=monailabel
-[[ -n "$VENV_DIR" ]] && MONAILABEL_CMD="$VENV_DIR/bin/monailabel"
-
-[[ -n "${APPTAINER_MODULE:-}" ]] && { module load "$APPTAINER_MODULE" 2>/dev/null || true; }
+# The venv on shared storage is the whole environment; no module loads needed
+# at job time -- its bin/ binaries resolve on any node that mounts it.
+if [[ ! -x "$VENV_DIR/bin/monailabel" ]]; then
+    echo "ERROR: no environment at $VENV_DIR -- run: bash slurm/build_env.sh" >&2
+    exit 1
+fi
 
 # Pick a free high port. Compute nodes are shared, and a hard-coded 8000 will
 # eventually collide with another user's job; that failure is confusing because
 # the server appears to start and then nothing can reach it.
 PORT="${MONAILABEL_PORT:-0}"
 if [[ "$PORT" == "0" ]]; then
-    PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
+    PORT=$("$VENV_DIR/bin/python" -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
 fi
 
 NODE="$(hostname -f)"
@@ -62,7 +61,7 @@ cat <<EOF
  Compute node     : $NODE
  Port             : $PORT
  Slides (studies) : $WSI_DIR
- Container        : $CONTAINER
+ Environment      : $VENV_DIR
  GPU              : ${CUDA_VISIBLE_DEVICES:-none allocated}
 
  CONNECT FROM QUPATH
@@ -97,43 +96,10 @@ if [[ ! -d "$WSI_DIR" ]]; then
     exit 1
 fi
 
-BIND_ARG=""
-[[ -n "${BIND_PATHS:-}" ]] && BIND_ARG="--bind $BIND_PATHS"
-# Plain string, not an array: empty arrays trip `set -u` on the bash 4.2 that
-# RHEL-era cluster nodes still ship.
-VENV_BIND=""
-[[ -n "$VENV_DIR" ]] && VENV_BIND="--bind $(dirname "$VENV_DIR"):$(dirname "$VENV_DIR")"
-
-if [[ "${USE_CONDA:-0}" == "1" ]]; then
-    # Fallback path for clusters without Apptainer (see build_container.sh).
-    echo "Using conda environment rather than a container."
-    # shellcheck disable=SC1091
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate path-wsi-monai
-    exec monailabel start_server \
-        --app "$PROJECT_DIR/monai_pathology" \
-        --studies "$WSI_DIR" \
-        --host 0.0.0.0 --port "$PORT" \
-        --conf models nuclei_segmentation \
-        --conf bundle_root "${BUNDLE:-$PROJECT_DIR/bundles/nuclei_segmentation}" \
-        --conf wsi_backend "${WSI_BACKEND:-OpenSlide}"
-fi
-
-if [[ ! -f "$CONTAINER" ]]; then
-    echo "ERROR: container not found at $CONTAINER -- run: bash slurm/build_container.sh" >&2
-    exit 1
-fi
-
-# --nv exposes the GPU; without it the server silently runs on CPU and every
-# interactive inference in QuPath takes tens of seconds instead of under one.
-exec "$APPTAINER_BIN" exec --nv $BIND_ARG $VENV_BIND \
-    --bind "$PROJECT_DIR:$PROJECT_DIR" \
-    --bind "$WSI_DIR:$WSI_DIR" \
-    "$CONTAINER" \
-    "$MONAILABEL_CMD" start_server \
-        --app "$PROJECT_DIR/monai_pathology" \
-        --studies "$WSI_DIR" \
-        --host 0.0.0.0 --port "$PORT" \
-        --conf models nuclei_segmentation \
-        --conf bundle_root "${BUNDLE:-$PROJECT_DIR/bundles/nuclei_segmentation}" \
-        --conf wsi_backend "${WSI_BACKEND:-OpenSlide}"
+exec "$VENV_DIR/bin/monailabel" start_server \
+    --app "$PROJECT_DIR/monai_pathology" \
+    --studies "$WSI_DIR" \
+    --host 0.0.0.0 --port "$PORT" \
+    --conf models nuclei_segmentation \
+    --conf bundle_root "${BUNDLE:-$PROJECT_DIR/bundles/nuclei_segmentation}" \
+    --conf wsi_backend "${WSI_BACKEND:-OpenSlide}"

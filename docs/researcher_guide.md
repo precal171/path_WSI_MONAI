@@ -2,8 +2,8 @@
 
 This guide is for annotating slides and training models day-to-day. It assumes
 someone technical has already done the **one-time setup** (building the
-container — see [biohpc_setup.md](biohpc_setup.md) if that hasn't happened
-yet). You do not need to know how to program to follow this guide.
+Python environment — see [biohpc_setup.md](biohpc_setup.md) if that hasn't
+happened yet). You do not need to know how to program to follow this guide.
 
 You'll be doing two things back and forth: drawing on slides in a program
 called **QuPath**, and typing two or three commands into a **terminal** (a

@@ -1,8 +1,8 @@
 # Core runtime dependencies (WSI I/O, geometry, MONAI Core).
 #
-# You do NOT pip install this on your laptop. This file exists to feed the
-# Apptainer image build (slurm/apptainer.def), which happens ON BioHPC. See
-# docs/biohpc_setup.md -- the container is the only environment in this project.
+# You do NOT pip install this on your laptop. This file feeds the project
+# virtualenv built ON BioHPC by slurm/build_env.sh. See docs/biohpc_setup.md --
+# that venv on shared storage is the only environment in this project.
 #
 # Enough on its own to run: the GeoJSON <-> mask utilities, MONAI Bundle config
 # parsing, tools/prepare_training_data.py and tools/batch_infer.py (which drives
@@ -14,20 +14,24 @@
 # annotation and training need that file too. If you only ever intend to run
 # batch inference, install both anyway -- the extra weight is small next to torch.
 #
-# Lower bounds only. Once you have a container that works on your cluster, pin
-# these exactly (==) so rebuilds stay reproducible.
+# Lower bounds only. Once you have an environment that works on your cluster,
+# pin these exactly (==) so rebuilds stay reproducible.
 
 monai>=1.3.0
+
+# torch's default PyPI wheels bundle their own CUDA 12 libraries, so no system
+# CUDA install is needed -- only a recent enough driver on the GPU nodes. These
+# builds target Volta (sm_70) and newer: fine on V100/A100/H100, but Pascal-era
+# GPUs (e.g. the GPUp4 partition's Tesla P4) get "no kernel image is available".
 torch>=2.0.0
 numpy>=1.24
 scipy>=1.10
 
 # WSI reading. openslide-python is only a wrapper around the OpenSlide C
 # library. openslide-bin is the OpenSlide project's own binary wheel of that
-# library: pip-installable with no root, which is what makes the no-privilege
-# pull+venv path (build_container.sh) work on the cluster. openslide-python
-# >= 1.4.0 auto-detects and prefers the wheel; the apt copy in apptainer.def
-# remains a fallback for the --build-def image.
+# library: pip-installable with no root, which is what lets the plain-venv
+# path (build_env.sh) work on the cluster with no system packages at all.
+# openslide-python >= 1.4.0 auto-detects and prefers the wheel.
 openslide-python>=1.4.0
 openslide-bin>=4.0.0
 tifffile>=2023.7.10
